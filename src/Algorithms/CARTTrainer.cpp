@@ -399,10 +399,10 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 			//Create a labels table, that corresponds to the sorted attribute
 			for(std::size_t k=0; k<tables[attributeIndex].size(); k++){
 				tmpLabels.push_back(dataset.element(tables[attributeIndex][k].id).label);
-				labelSumBelow += dataset.element(tables[attributeIndex][k].id).label;
+				noalias(labelSumBelow) += dataset.element(tables[attributeIndex][k].id).label;
 			}
-			labelSumAbove += tmpLabels[0];
-			labelSumBelow -= tmpLabels[0];
+			noalias(labelSumAbove) += tmpLabels[0];
+			noalias(labelSumBelow) -= tmpLabels[0];
 
 			for(std::size_t i=1; i<n; i++){
 				prev = i-1;
@@ -423,8 +423,8 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 					}
 				}
 
-				labelSumAbove += tmpLabels[i];
-				labelSumBelow -= tmpLabels[i];
+				noalias(labelSumAbove) += tmpLabels[i];
+				noalias(labelSumBelow) -= tmpLabels[i];
 			}
 		}
 
