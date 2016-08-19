@@ -44,13 +44,19 @@ void CARTTrainer::train(ModelType& model, RegressionDataset const& dataset)
 		boost::copy(dataTrain.labels().elements(),labels.begin());
 		//Build tree form this fold
 		CARTClassifier<RealVector>::TreeType tree = buildTree(tables, dataTrain, labels, 0, dataTrain.numberOfElements());
+                /*
+                cout << "----------------------------------" << endl;
+                for(CARTClassifier<RealVector>::NodeInfo& node : tree)
+                {
+                    cout << node.nodeId << ", " << node.leftNodeId << ", " << node.rightNodeId << endl;
+                }
+                 */
 		//Add the tree to the model and prune
 		model.setTree(tree);
 		while(true){
 			//evaluate the error of current tree
 			SquaredLoss<> loss;
 			double error = loss.eval(dataTest.labels(), model(dataTest.inputs()));
-
 			if(error < bestErrorRate){
 				//We have found a subtree that has a smaller error rate when tested!
 				bestErrorRate = error;
@@ -59,6 +65,14 @@ void CARTTrainer::train(ModelType& model, RegressionDataset const& dataset)
                         if(tree.size() == 1) break;
 			pruneTree(tree);
 			model.setTree(tree);
+                        
+                        /*
+                        cout << " === " << endl;
+                        for(CARTClassifier<RealVector>::NodeInfo& node : tree)
+                        {
+                            cout << node.nodeId << ", " << node.leftNodeId << ", " << node.rightNodeId << endl;
+                        }
+                         */
 		}
 	}
         SHARK_CHECK(bestTree.size() > 0, "We should never set a tree that is empty.");
@@ -346,119 +360,133 @@ RealVector CARTTrainer::hist(boost::unordered_map<std::size_t, std::size_t> coun
 	return normedHistogram;
 }
 
-
+struct BuildData 
+{
+    CARTTrainer::AttributeTables const tables;
+    std::vector<RealVector> const labels;
+    std::size_t nodeId;
+    
+    BuildData(CARTTrainer::AttributeTables const& tables,
+    std::vector<RealVector> const& labels,
+    std::size_t nodeId) : tables(tables), labels(labels), nodeId(nodeId){}
+};
 
 //Build CART tree in the regression case
 CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, RegressionDataset const& dataset, std::vector<RealVector> const& labels, std::size_t nodeId, std::size_t trainSize){
+        size_t nextId = 0;;
+        std::vector<BuildData> bd;
+        bd.emplace_back(tables, labels, nextId++);
+        
+        TreeType tree;
+        
+        while(!bd.empty())
+        {
+                BuildData current = bd.back();
+                bd.pop_back();
+                //Construct tree
+                CARTClassifier<RealVector>::NodeInfo nodeInfo;
 
-	//Construct tree
-	CARTClassifier<RealVector>::NodeInfo nodeInfo;
+                nodeInfo.nodeId = current.nodeId;
+                nodeInfo.label = mean(current.labels);
+                nodeInfo.leftNodeId = 0;
+                nodeInfo.rightNodeId = 0;
 
-	nodeInfo.nodeId = nodeId;
-	nodeInfo.label = mean(labels);
-	nodeInfo.leftNodeId = 0;
-	nodeInfo.rightNodeId = 0;
+                //Store the Total Sum of Squares (TSS)
+                RealVector labelSum = current.labels[0];
+                for(std::size_t i=1; i< current.labels.size(); i++){
+                        labelSum += current.labels[0];
+                }
 
-	//Store the Total Sum of Squares (TSS)
-	RealVector labelSum = labels[0];
-	for(std::size_t i=1; i< labels.size(); i++){
-		labelSum += labels[0];
-	}
+                nodeInfo.misclassProp = totalSumOfSquares(current.labels, 0, current.labels.size(), labelSum)*((double)dataset.numberOfElements()/trainSize);
 
-	nodeInfo.misclassProp = totalSumOfSquares(labels, 0, labels.size(), labelSum)*((double)dataset.numberOfElements()/trainSize);
+                //n = Total number of cases in the dataset
+                //n1 = Number of cases to the left child node
+                //n2 = number of cases to the right child node
+                std::size_t n, n1, n2;
 
-	TreeType tree, lTree, rTree;
+                n = current.tables[0].size();
 
-	//n = Total number of cases in the dataset
-	//n1 = Number of cases to the left child node
-	//n2 = number of cases to the right child node
-	std::size_t n, n1, n2;
+                if(n > m_nodeSize){
+                        //label vectors
+                        std::vector<RealVector> bestLabels, tmpLabels;
+                        RealVector labelSumAbove(m_labelDimension), labelSumBelow(m_labelDimension);
 
-	n = tables[0].size();
+                        //Index of attributes
+                        std::size_t attributeIndex, bestAttributeIndex, bestAttributeValIndex;
 
-	if(n > m_nodeSize){
-		//label vectors
-		std::vector<RealVector> bestLabels, tmpLabels;
-		RealVector labelSumAbove(m_labelDimension), labelSumBelow(m_labelDimension);
+                        //Attribute values
+                        double bestAttributeVal;
+                        double impurity, bestImpurity = -1;
 
-		//Index of attributes
-		std::size_t attributeIndex, bestAttributeIndex, bestAttributeValIndex;
+                        std::size_t prev;
+                        bool doSplit = false;
+                        for ( attributeIndex = 0; attributeIndex< m_inputDimension; attributeIndex++){
 
-		//Attribute values
-		double bestAttributeVal;
-		double impurity, bestImpurity = -1;
+                                labelSumBelow.clear();
+                                labelSumAbove.clear();
 
-		std::size_t prev;
-		bool doSplit = false;
-		for ( attributeIndex = 0; attributeIndex< m_inputDimension; attributeIndex++){
+                                tmpLabels.clear();
+                                //Create a labels table, that corresponds to the sorted attribute
+                                for(std::size_t k=0; k<current.tables[attributeIndex].size(); k++){
+                                        tmpLabels.push_back(dataset.element(current.tables[attributeIndex][k].id).label);
+                                        noalias(labelSumBelow) += dataset.element(current.tables[attributeIndex][k].id).label;
+                                }
+                                noalias(labelSumAbove) += tmpLabels[0];
+                                noalias(labelSumBelow) -= tmpLabels[0];
 
-			labelSumBelow.clear();
-			labelSumAbove.clear();
+                                for(std::size_t i=1; i<n; i++){
+                                        prev = i-1;
+                                        if(current.tables[attributeIndex][prev].value!=current.tables[attributeIndex][i].value){
+                                                n1=i;
+                                                n2 = n-n1;
+                                                //Calculate the squared error of the split
+                                                impurity = (n1*totalSumOfSquares(tmpLabels,0,n1,labelSumAbove)+n2*totalSumOfSquares(tmpLabels,n1,n2,labelSumBelow))/(double)(n);
 
-			tmpLabels.clear();
-			//Create a labels table, that corresponds to the sorted attribute
-			for(std::size_t k=0; k<tables[attributeIndex].size(); k++){
-				tmpLabels.push_back(dataset.element(tables[attributeIndex][k].id).label);
-				noalias(labelSumBelow) += dataset.element(tables[attributeIndex][k].id).label;
-			}
-			noalias(labelSumAbove) += tmpLabels[0];
-			noalias(labelSumBelow) -= tmpLabels[0];
+                                                if(impurity<bestImpurity || bestImpurity<0){
+                                                        //Found a more pure split, store the attribute index and value
+                                                        doSplit = true;
+                                                        bestImpurity = impurity;
+                                                        bestAttributeIndex = attributeIndex;
+                                                        bestAttributeValIndex = prev;
+                                                        bestAttributeVal = current.tables[attributeIndex][bestAttributeValIndex].value;
+                                                        bestLabels = tmpLabels;
+                                                }
+                                        }
 
-			for(std::size_t i=1; i<n; i++){
-				prev = i-1;
-				if(tables[attributeIndex][prev].value!=tables[attributeIndex][i].value){
-					n1=i;
-					n2 = n-n1;
-					//Calculate the squared error of the split
-					impurity = (n1*totalSumOfSquares(tmpLabels,0,n1,labelSumAbove)+n2*totalSumOfSquares(tmpLabels,n1,n2,labelSumBelow))/(double)(n);
+                                        noalias(labelSumAbove) += tmpLabels[i];
+                                        noalias(labelSumBelow) -= tmpLabels[i];
+                                }
+                        }
 
-					if(impurity<bestImpurity || bestImpurity<0){
-						//Found a more pure split, store the attribute index and value
-						doSplit = true;
-						bestImpurity = impurity;
-						bestAttributeIndex = attributeIndex;
-						bestAttributeValIndex = prev;
-						bestAttributeVal = tables[attributeIndex][bestAttributeValIndex].value;
-						bestLabels = tmpLabels;
-					}
-				}
+                        if(doSplit){
 
-				noalias(labelSumAbove) += tmpLabels[i];
-				noalias(labelSumBelow) -= tmpLabels[i];
-			}
-		}
+                                //Split the attribute tables
+                                AttributeTables rTables, lTables;
+                                splitAttributeTables(current.tables, bestAttributeIndex, bestAttributeValIndex, lTables, rTables);
 
-		if(doSplit){
+                                //Split the labels
+                                std::vector<RealVector> lLabels, rLabels;
+                                for(std::size_t i = 0; i <= bestAttributeValIndex; i++){
+                                        lLabels.push_back(bestLabels[i]);
+                                }
+                                for(std::size_t i = bestAttributeValIndex+1; i < bestLabels.size(); i++){
+                                        rLabels.push_back(bestLabels[i]);
+                                }
 
-			//Split the attribute tables
-			AttributeTables rTables, lTables;
-			splitAttributeTables(tables, bestAttributeIndex, bestAttributeValIndex, lTables, rTables);
+                                //Continue recursively
+                                nodeInfo.attributeIndex = bestAttributeIndex;
+                                nodeInfo.attributeValue = bestAttributeVal;
+                                nodeInfo.leftNodeId = nextId++;
+                                nodeInfo.rightNodeId = nextId++;
+                                
+                                bd.emplace_back(lTables, lLabels, nodeInfo.leftNodeId);
+                                bd.emplace_back(rTables, rLabels, nodeInfo.rightNodeId);
+                        }
+                }
+                
+                tree.push_back(nodeInfo);
 
-			//Split the labels
-			std::vector<RealVector> lLabels, rLabels;
-			for(std::size_t i = 0; i <= bestAttributeValIndex; i++){
-				lLabels.push_back(bestLabels[i]);
-			}
-			for(std::size_t i = bestAttributeValIndex+1; i < bestLabels.size(); i++){
-				rLabels.push_back(bestLabels[i]);
-			}
-
-			//Continue recursively
-			nodeInfo.attributeIndex = bestAttributeIndex;
-			nodeInfo.attributeValue = bestAttributeVal;
-			nodeInfo.leftNodeId = nodeId+1;
-			lTree = buildTree(lTables, dataset, lLabels, nodeInfo.leftNodeId, trainSize);
-                        nodeInfo.rightNodeId = nodeInfo.leftNodeId + lTree.size();
-                        rTree = buildTree(rTables, dataset, rLabels, nodeInfo.rightNodeId, trainSize);
-		}
-	}
-
-
-	tree.push_back(nodeInfo);
-	tree.insert(tree.end(), lTree.begin(), lTree.end());
-	tree.insert(tree.end(), rTree.begin(), rTree.end());
-
-	//Store entry in the tree
+        }
 	return tree;
 
 }

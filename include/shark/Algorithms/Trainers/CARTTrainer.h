@@ -94,7 +94,6 @@ public:
 	void setNumberOfFolds(unsigned int folds){
 		m_numberOfFolds = folds;
 	}
-protected:
 
 	///Types frequently used
 	struct TableEntry{
@@ -109,7 +108,7 @@ protected:
 	typedef std::vector < AttributeTable > AttributeTables;
 
 	typedef ModelType::TreeType TreeType;
-
+protected:
 
 	///Number of attributes in the dataset
 	std::size_t m_inputDimension;
