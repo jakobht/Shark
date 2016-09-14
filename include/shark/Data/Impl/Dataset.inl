@@ -386,7 +386,7 @@ public:
 		SIZE_CHECK(sum == numberOfElements());
 
 
-		SHARK_CHECK(isIndependent(), "[SharedContainer::repartition] Container is not Independent");
+		// SHARK_CHECK(isIndependent(), "[SharedContainer::repartition] Container is not Independent");
 		Container newPartitioning;
 		std::size_t currentBatch = 0;
 		std::size_t currentBatchIndex = 0;

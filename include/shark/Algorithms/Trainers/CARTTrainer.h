@@ -61,7 +61,7 @@ namespace shark {
  *
  * After the maximum sized tree is grown, the tree is pruned back from the leafs upward.
  * The pruning is done by cost complexity pruning, as described by L. Breiman
- *
+ *  
  * The algorithm used is based on the SPRINT algorithm, as shown by J. Shafer et al.
  *
  * For more detailed information about CART, see \e Classification \e And \e Regression
@@ -94,6 +94,10 @@ public:
 	void setNumberOfFolds(unsigned int folds){
 		m_numberOfFolds = folds;
 	}
+        
+        void setnodeSize(unsigned int size){
+                m_nodeSize = size;
+        }
 
 	///Types frequently used
 	struct TableEntry{

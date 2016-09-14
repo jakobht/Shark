@@ -17,6 +17,7 @@ using namespace std;
 //Train model with a regression dataset
 void CARTTrainer::train(ModelType& model, RegressionDataset const& dataset)
 {
+        cerr << "Node_size is: " << m_nodeSize << endl;
 	//Store the number of input dimensions
 	m_inputDimension = inputDimension(dataset);
 
@@ -362,26 +363,37 @@ RealVector CARTTrainer::hist(boost::unordered_map<std::size_t, std::size_t> coun
 
 struct BuildData 
 {
-    CARTTrainer::AttributeTables const tables;
-    std::vector<RealVector> const labels;
+    CARTTrainer::AttributeTables tables;
+    std::vector<RealVector> labels;
     std::size_t nodeId;
+    
+    BuildData(){};
     
     BuildData(CARTTrainer::AttributeTables const& tables,
     std::vector<RealVector> const& labels,
     std::size_t nodeId) : tables(tables), labels(labels), nodeId(nodeId){}
+    
+    friend void swap(BuildData& a, BuildData& b)
+    {
+        using std::swap;
+
+        std::swap(a.tables, b.tables);
+        std::swap(a.labels, b.labels);
+        std::swap(a.nodeId, b.nodeId);
+    }
 };
 
 //Build CART tree in the regression case
 CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, RegressionDataset const& dataset, std::vector<RealVector> const& labels, std::size_t nodeId, std::size_t trainSize){
-        size_t nextId = 0;;
+        size_t nextId = 0;
         std::vector<BuildData> bd;
         bd.emplace_back(tables, labels, nextId++);
         
         TreeType tree;
-        
         while(!bd.empty())
         {
-                BuildData current = bd.back();
+                BuildData current;
+                swap(current, bd.back());
                 bd.pop_back();
                 //Construct tree
                 CARTClassifier<RealVector>::NodeInfo nodeInfo;
@@ -406,21 +418,23 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 
                 n = current.tables[0].size();
 
+                size_t splitcount = m_nodeSize;
+                
                 if(n > m_nodeSize){
                         //label vectors
                         std::vector<RealVector> bestLabels, tmpLabels;
                         RealVector labelSumAbove(m_labelDimension), labelSumBelow(m_labelDimension);
 
                         //Index of attributes
-                        std::size_t attributeIndex, bestAttributeIndex, bestAttributeValIndex;
+                        std::size_t bestAttributeIndex = 0;
+                        std::size_t bestAttributeValIndex = m_nodeSize;
 
                         //Attribute values
-                        double bestAttributeVal;
+                        double bestAttributeVal = current.tables[bestAttributeIndex][bestAttributeValIndex-1].value;
                         double impurity, bestImpurity = -1;
 
-                        std::size_t prev;
                         bool doSplit = false;
-                        for ( attributeIndex = 0; attributeIndex< m_inputDimension; attributeIndex++){
+                        for (size_t attributeIndex = 0; attributeIndex< m_inputDimension; attributeIndex++){
 
                                 labelSumBelow.clear();
                                 labelSumAbove.clear();
@@ -431,12 +445,16 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
                                         tmpLabels.push_back(dataset.element(current.tables[attributeIndex][k].id).label);
                                         noalias(labelSumBelow) += dataset.element(current.tables[attributeIndex][k].id).label;
                                 }
-                                noalias(labelSumAbove) += tmpLabels[0];
-                                noalias(labelSumBelow) -= tmpLabels[0];
 
-                                for(std::size_t i=1; i<n; i++){
-                                        prev = i-1;
-                                        if(current.tables[attributeIndex][prev].value!=current.tables[attributeIndex][i].value){
+                                for(std::size_t i=splitcount; i<n; i += splitcount){
+                                        // cerr << "Trying split at att: " << attributeIndex << " and point: " << i << endl;
+                                        for(std::size_t j = i-splitcount; j < i; j++)
+                                        {
+                                                noalias(labelSumAbove) += tmpLabels[j];
+                                                noalias(labelSumBelow) -= tmpLabels[j];
+                                        }
+                                        
+                                        if(current.tables[attributeIndex][i-splitcount].value!=current.tables[attributeIndex][i].value){
                                                 n1=i;
                                                 n2 = n-n1;
                                                 //Calculate the squared error of the split
@@ -447,30 +465,30 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
                                                         doSplit = true;
                                                         bestImpurity = impurity;
                                                         bestAttributeIndex = attributeIndex;
-                                                        bestAttributeValIndex = prev;
-                                                        bestAttributeVal = current.tables[attributeIndex][bestAttributeValIndex].value;
+                                                        bestAttributeValIndex = i;
+                                                        bestAttributeVal = current.tables[attributeIndex][bestAttributeValIndex-1].value;
                                                         bestLabels = tmpLabels;
                                                 }
                                         }
-
-                                        noalias(labelSumAbove) += tmpLabels[i];
-                                        noalias(labelSumBelow) -= tmpLabels[i];
                                 }
                         }
 
                         if(doSplit){
 
+                                bd.emplace_back();
+                                bd.emplace_back();
+                                BuildData& leftNode = *(bd.end()-2);
+                                BuildData& rightNode = *(bd.end()-1);
+                            
                                 //Split the attribute tables
-                                AttributeTables rTables, lTables;
-                                splitAttributeTables(current.tables, bestAttributeIndex, bestAttributeValIndex, lTables, rTables);
+                                splitAttributeTables(current.tables, bestAttributeIndex, bestAttributeValIndex-1, leftNode.tables, rightNode.tables);
 
                                 //Split the labels
-                                std::vector<RealVector> lLabels, rLabels;
-                                for(std::size_t i = 0; i <= bestAttributeValIndex; i++){
-                                        lLabels.push_back(bestLabels[i]);
+                                for(std::size_t i = 0; i < bestAttributeValIndex; i++){
+                                        leftNode.labels.push_back(bestLabels[i]);
                                 }
-                                for(std::size_t i = bestAttributeValIndex+1; i < bestLabels.size(); i++){
-                                        rLabels.push_back(bestLabels[i]);
+                                for(std::size_t i = bestAttributeValIndex; i < bestLabels.size(); i++){
+                                        rightNode.labels.push_back(bestLabels[i]);
                                 }
 
                                 //Continue recursively
@@ -479,14 +497,15 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
                                 nodeInfo.leftNodeId = nextId++;
                                 nodeInfo.rightNodeId = nextId++;
                                 
-                                bd.emplace_back(lTables, lLabels, nodeInfo.leftNodeId);
-                                bd.emplace_back(rTables, rLabels, nodeInfo.rightNodeId);
+                                leftNode.nodeId = nodeInfo.leftNodeId;
+                                rightNode.nodeId = nodeInfo.rightNodeId;
                         }
                 }
                 
                 tree.push_back(nodeInfo);
 
         }
+        std::cerr << "Tree size: " << tree.size() << std::endl;
 	return tree;
 
 }
