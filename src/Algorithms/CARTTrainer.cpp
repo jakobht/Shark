@@ -418,7 +418,9 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 
                 n = current.tables[0].size();
 
-                size_t splitcount = m_nodeSize;
+                size_t splitcount =  labels.size()/9;
+                
+                std::cout << labels.size() << " " << splitcount << " " << m_nodeSize << std::endl;
                 
                 if(n > m_nodeSize){
                         //label vectors
@@ -431,7 +433,7 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 
                         //Attribute values
                         double bestAttributeVal = current.tables[bestAttributeIndex][bestAttributeValIndex-1].value;
-                        double impurity, bestImpurity = -1;
+                        double impurity, fullImpurity, bestImpurity = -1;
 
                         bool doSplit = false;
                         for (size_t attributeIndex = 0; attributeIndex< m_inputDimension; attributeIndex++){
@@ -458,9 +460,12 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
                                                 n1=i;
                                                 n2 = n-n1;
                                                 //Calculate the squared error of the split
+                                                fullImpurity = totalSumOfSquares(tmpLabels,0,n,labelSumBelow + labelSumAbove);
                                                 impurity = (n1*totalSumOfSquares(tmpLabels,0,n1,labelSumAbove)+n2*totalSumOfSquares(tmpLabels,n1,n2,labelSumBelow))/(double)(n);
 
-                                                if(impurity<bestImpurity || bestImpurity<0){
+                                                double improvement = (fullImpurity - impurity) / fullImpurity;
+                                                
+                                                if(improvement > 0.1 && (impurity<bestImpurity || bestImpurity<0)){
                                                         //Found a more pure split, store the attribute index and value
                                                         doSplit = true;
                                                         bestImpurity = impurity;
