@@ -98,6 +98,14 @@ public:
         void setnodeSize(unsigned int size){
                 m_nodeSize = size;
         }
+        
+        void setNumSplits(std::size_t numSplits){
+                m_numSplits = numSplits;
+        }
+        
+        void setSplitImpurityGain(double impurityGain){
+            m_splitImpurityGain = impurityGain;
+        }
 
 	///Types frequently used
 	struct TableEntry{
@@ -121,7 +129,11 @@ protected:
 	std::size_t m_labelDimension;
 
 	///Controls the number of samples in the terminal nodes
-	std::size_t m_nodeSize;
+	std::size_t m_nodeSize = 10;
+        
+        std::size_t m_numSplits = 10;
+        
+        double m_splitImpurityGain = 10;
 
 	///Holds the maximum label. Used in allocating the histograms
 	unsigned int m_maxLabel;

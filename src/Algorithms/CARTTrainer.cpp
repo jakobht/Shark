@@ -418,7 +418,8 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 
                 n = current.tables[0].size();
 
-                size_t splitcount =  labels.size()/9;
+                size_t splitcount =  labels.size()/m_numSplits;
+                splitcount = splitcount ? splitcount : 1; // Make sure splitcount is never 0
                 
                 std::cout << labels.size() << " " << splitcount << " " << m_nodeSize << std::endl;
                 
@@ -465,7 +466,7 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 
                                                 double improvement = (fullImpurity - impurity) / fullImpurity;
                                                 
-                                                if(improvement > 0.1 && (impurity<bestImpurity || bestImpurity<0)){
+                                                if(improvement*100 >= m_splitImpurityGain && (impurity<bestImpurity || bestImpurity<0)){
                                                         //Found a more pure split, store the attribute index and value
                                                         doSplit = true;
                                                         bestImpurity = impurity;
