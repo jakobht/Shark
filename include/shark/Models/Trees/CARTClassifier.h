@@ -151,9 +151,11 @@ public:
 	}
 
 	/// Set the model tree.
-	void setTree(TreeType const& tree){
-		m_tree = tree;
-		optimizeTree(m_tree);
+	void setTree(const TreeType& tree, bool optimize = true){
+                m_tree = tree;
+                if(optimize){
+                    optimizeTree(m_tree);
+                }
 	}
 	
 	/// Get the model split matrix.

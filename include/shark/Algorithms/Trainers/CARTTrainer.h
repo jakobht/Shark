@@ -89,7 +89,7 @@ public:
 	
 	///Train regression
 	SHARK_EXPORT_SYMBOL void train(ModelType& model, RegressionDataset const& dataset);
-
+        
 	///Sets the number of folds used for creation of the trees.
 	void setNumberOfFolds(unsigned int folds){
 		m_numberOfFolds = folds;
@@ -120,6 +120,8 @@ public:
 	typedef std::vector < AttributeTable > AttributeTables;
 
 	typedef ModelType::TreeType TreeType;
+        
+        TreeType garbageCollect(TreeType& tree);
 protected:
 
 	///Number of attributes in the dataset

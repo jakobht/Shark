@@ -5,6 +5,7 @@
  *	  Author: nybohansen
  */
 #define SHARK_COMPILE_DLL
+#include <queue>
 #include <shark/Algorithms/Trainers/CARTTrainer.h>
 #include <shark/Data/CVDatasetTools.h>
 #include <shark/ObjectiveFunctions/Loss/SquaredLoss.h>
@@ -13,6 +14,24 @@
 
 using namespace shark;
 using namespace std;
+
+CARTTrainer::TreeType CARTTrainer::garbageCollect(TreeType& tree) {
+    TreeType res;
+    size_t i = 0;
+    res.push_back(tree[0]);
+    while(res.back().leftNodeId)
+    {
+        res.push_back(tree[res[i].leftNodeId]);
+        res[i].leftNodeId = res.size() - 1;
+        
+        res.push_back(tree[res[i].rightNodeId]);
+        res[i].rightNodeId = res.size() - 1;
+        i++;
+    }
+    res.shrink_to_fit();
+    return res;
+}
+
 
 //Train model with a regression dataset
 void CARTTrainer::train(ModelType& model, RegressionDataset const& dataset)
@@ -53,7 +72,9 @@ void CARTTrainer::train(ModelType& model, RegressionDataset const& dataset)
                 }
                  */
 		//Add the tree to the model and prune
-		model.setTree(tree);
+                cerr << "Start pruning, tree size: " << tree.size()  << " best size: " << bestTree.size() << "\n";
+		model.setTree(tree, false);
+                size_t size = tree.size();
 		while(true){
 			//evaluate the error of current tree
 			SquaredLoss<> loss;
@@ -63,9 +84,10 @@ void CARTTrainer::train(ModelType& model, RegressionDataset const& dataset)
 				bestErrorRate = error;
 				bestTree = tree;
 			}
-                        if(tree.size() == 1) break;
+                        if(size == 1) break;
 			pruneTree(tree);
-			model.setTree(tree);
+                        size--;
+			model.setTree(tree, false);
                         
                         /*
                         cout << " === " << endl;
@@ -75,9 +97,11 @@ void CARTTrainer::train(ModelType& model, RegressionDataset const& dataset)
                         }
                          */
 		}
+                cerr << "Pruning done - tree size: " << bestTree.size() << "\n";
 	}
         SHARK_CHECK(bestTree.size() > 0, "We should never set a tree that is empty.");
-	model.setTree(bestTree);
+        bestTree = garbageCollect(bestTree);
+	model.setTree(bestTree, false);
 }
 
 
@@ -194,8 +218,8 @@ void CARTTrainer::pruneTree(TreeType & tree){
 	for(std::size_t i=0; i != tree.size(); i++){
 		//Make the internal nodes with the smallest g terminal nodes and prune their children!
 		if( tree[i].leftNodeId > 0 && tree[i].g == g){
-			pruneNode(tree, tree[i].leftNodeId);
-			pruneNode(tree, tree[i].rightNodeId);
+			// pruneNode(tree, tree[i].leftNodeId);
+			// pruneNode(tree, tree[i].rightNodeId);
 			// //Make the node terminal
 			tree[i].leftNodeId = 0;
 			tree[i].rightNodeId = 0;
@@ -204,6 +228,11 @@ void CARTTrainer::pruneTree(TreeType & tree){
 }
 
 std::size_t CARTTrainer::findNode(TreeType & tree, std::size_t nodeId){
+        if(tree[nodeId].nodeId != nodeId){
+            std::cerr << "noooo!!" << tree[nodeId].nodeId << nodeId;
+            exit(1);
+        }
+        return nodeId;
 	std::size_t i = 0;
 	//while(i<tree.size() && tree[i].nodeId!=nodeId){
 	while(tree[i].nodeId != nodeId){
@@ -386,15 +415,14 @@ struct BuildData
 //Build CART tree in the regression case
 CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, RegressionDataset const& dataset, std::vector<RealVector> const& labels, std::size_t nodeId, std::size_t trainSize){
         size_t nextId = 0;
-        std::vector<BuildData> bd;
-        bd.emplace_back(tables, labels, nextId++);
+        std::queue<BuildData> bd;
+        bd.emplace(tables, labels, nextId++);
         
         TreeType tree;
         while(!bd.empty())
         {
-                BuildData current;
-                swap(current, bd.back());
-                bd.pop_back();
+                BuildData current(std::move(bd.front()));
+                bd.pop();
                 //Construct tree
                 CARTClassifier<RealVector>::NodeInfo nodeInfo;
 
@@ -418,7 +446,7 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 
                 n = current.tables[0].size();
 
-                size_t splitcount =  labels.size()/m_numSplits;
+                size_t splitcount =  n/m_numSplits;
                 splitcount = splitcount ? splitcount : 1; // Make sure splitcount is never 0
                 
                 std::cout << labels.size() << " " << splitcount << " " << m_nodeSize << std::endl;
@@ -481,10 +509,8 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 
                         if(doSplit){
 
-                                bd.emplace_back();
-                                bd.emplace_back();
-                                BuildData& leftNode = *(bd.end()-2);
-                                BuildData& rightNode = *(bd.end()-1);
+                                BuildData leftNode;
+                                BuildData rightNode;
                             
                                 //Split the attribute tables
                                 splitAttributeTables(current.tables, bestAttributeIndex, bestAttributeValIndex-1, leftNode.tables, rightNode.tables);
@@ -505,6 +531,9 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
                                 
                                 leftNode.nodeId = nodeInfo.leftNodeId;
                                 rightNode.nodeId = nodeInfo.rightNodeId;
+                                
+                                bd.push(std::move(leftNode));
+                                bd.push(std::move(rightNode));
                         }
                 }
                 
@@ -512,6 +541,7 @@ CARTTrainer::TreeType CARTTrainer::buildTree(AttributeTables const& tables, Regr
 
         }
         std::cerr << "Tree size: " << tree.size() << std::endl;
+        cerr << "Will return\n";
 	return tree;
 
 }
