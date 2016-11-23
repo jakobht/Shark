@@ -19,13 +19,19 @@ CARTTrainer::TreeType CARTTrainer::garbageCollect(TreeType& tree) {
     TreeType res;
     size_t i = 0;
     res.push_back(tree[0]);
-    while(res.back().leftNodeId)
+    while(res.size() != i)
     {
-        res.push_back(tree[res[i].leftNodeId]);
-        res[i].leftNodeId = res.size() - 1;
+        if(res[i].leftNodeId)
+        {
+            res.push_back(tree[res[i].leftNodeId]);
+            res[i].leftNodeId = res.size() - 1;
+        }
         
-        res.push_back(tree[res[i].rightNodeId]);
-        res[i].rightNodeId = res.size() - 1;
+        if(res[i].rightNodeId)
+        {
+            res.push_back(tree[res[i].rightNodeId]);
+            res[i].rightNodeId = res.size() - 1;
+        }
         i++;
     }
     res.shrink_to_fit();
